@@ -1,0 +1,7 @@
+{
+  "name": "BananaAI Remaster SaaS",
+  "description": "Enterprise-grade AI image reconstruction platform with Live Assistant, Batch Processing, and Advanced Editing.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
