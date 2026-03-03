@@ -5,8 +5,8 @@ import { fileToBase64, convertImageFormat } from "./imageUtils";
 
 const getApiKey = () => localStorage.getItem('gemini_api_key') || process.env.API_KEY || '';
 
-const MODEL_NAME = 'gemini-3.1-flash-image';
-const TEXT_MODEL = 'gemini-3.1-pro';
+const MODEL_NAME = 'gemini-3.1-flash-image-preview';
+const TEXT_MODEL = 'gemini-3.1-pro-preview';
 
 export const processImageWithGemini = async (item: ImageItem): Promise<{
   processedUrl: string;

@@ -89,7 +89,7 @@ const App: React.FC = () => {
     useEffect(() => {
         if (isRestored && images.length > 0) {
             const timer = setTimeout(() => {
-                saveSessionImages(images).catch(e => console.error("Auto-save failed", e));
+                saveSessionImages(images)?.catch(e => console.error("Auto-save failed", e));
             }, 1000); // Debounce save
             return () => clearTimeout(timer);
         }
