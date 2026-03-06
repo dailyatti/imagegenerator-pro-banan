@@ -26,6 +26,28 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
   // Download config within editor
   const [downloadFormat, setDownloadFormat] = useState<OutputFormat>(OutputFormat.PNG);
 
+  const fitCropBoxToImage = (instance: any): boolean => {
+    if (!instance) return false;
+    const imageData = instance.getImageData?.();
+    if (!imageData || imageData.width <= 0 || imageData.height <= 0) return false;
+
+    instance.crop?.();
+    instance.setCropBoxData?.({
+      left: imageData.left,
+      top: imageData.top,
+      width: imageData.width,
+      height: imageData.height
+    });
+    return true;
+  };
+
+  const fitCropBoxToImageWithRetry = (instance: any, retries = 8) => {
+    if (!instance) return;
+    if (fitCropBoxToImage(instance)) return;
+    if (retries <= 0) return;
+    window.setTimeout(() => fitCropBoxToImageWithRetry(instance, retries - 1), 60);
+  };
+
   const handleSave = () => {
     if (!cropper) return;
 
@@ -79,6 +101,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
               try {
                   const newUrl = await onGenerativeFill(blob);
                   setCurrentImageUrl(newUrl); // Update editor with new image
+                  cropper.once?.('ready', () => fitCropBoxToImageWithRetry(cropper));
                   cropper.replace(newUrl); // Reset cropper to new image
                   setHasGenerated(true);
               } catch (e) {
@@ -146,7 +169,10 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
                 initialAspectRatio={NaN}
                 guides={true}
                 ref={cropperRef}
-                onInitialized={(instance) => setCropper(instance)}
+                onInitialized={(instance) => {
+                    setCropper(instance);
+                    fitCropBoxToImageWithRetry(instance);
+                }}
                 background={true}
                 viewMode={0} // Allows crop box to be outside the image
                 dragMode="move"
