@@ -25,6 +25,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
   
   // Download config within editor
   const [downloadFormat, setDownloadFormat] = useState<OutputFormat>(OutputFormat.PNG);
+  const MAX_FILL_DIMENSION = 2048;
+  const MAX_EXPANSION_SCALE = 2.2;
+  const MIN_OUTPAINT_MARGIN_PX = 12;
 
   const fitCropBoxToImage = (instance: any): boolean => {
     if (!instance) return false;
@@ -41,11 +44,81 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
     return true;
   };
 
-  const fitCropBoxToImageWithRetry = (instance: any, retries = 8) => {
+  const fitCropBoxToImageWithRetry = (instance: any, retries = 8, shouldReset = true) => {
     if (!instance) return;
+    if (shouldReset) instance.reset?.();
     if (fitCropBoxToImage(instance)) return;
     if (retries <= 0) return;
-    window.setTimeout(() => fitCropBoxToImageWithRetry(instance, retries - 1), 60);
+    window.setTimeout(() => fitCropBoxToImageWithRetry(instance, retries - 1, false), 60);
+  };
+
+  const getOutpaintStats = (instance: any) => {
+    const imageData = instance?.getImageData?.();
+    const cropData = instance?.getCropBoxData?.();
+    if (!imageData || !cropData) return null;
+
+    const imageRight = imageData.left + imageData.width;
+    const imageBottom = imageData.top + imageData.height;
+    const cropRight = cropData.left + cropData.width;
+    const cropBottom = cropData.top + cropData.height;
+
+    const outsideLeft = Math.max(0, imageData.left - cropData.left);
+    const outsideTop = Math.max(0, imageData.top - cropData.top);
+    const outsideRight = Math.max(0, cropRight - imageRight);
+    const outsideBottom = Math.max(0, cropBottom - imageBottom);
+
+    return {
+      imageData,
+      cropData,
+      outsideLeft,
+      outsideTop,
+      outsideRight,
+      outsideBottom,
+      outsideSum: outsideLeft + outsideTop + outsideRight + outsideBottom
+    };
+  };
+
+  const clampOutpaintFrame = (instance: any): boolean => {
+    const stats = getOutpaintStats(instance);
+    if (!stats) return false;
+
+    const { imageData, cropData } = stats;
+    const maxWidth = imageData.width * MAX_EXPANSION_SCALE;
+    const maxHeight = imageData.height * MAX_EXPANSION_SCALE;
+
+    if (cropData.width <= maxWidth && cropData.height <= maxHeight) return false;
+
+    const newWidth = Math.min(cropData.width, maxWidth);
+    const newHeight = Math.min(cropData.height, maxHeight);
+    const newLeft = cropData.left + (cropData.width - newWidth) / 2;
+    const newTop = cropData.top + (cropData.height - newHeight) / 2;
+
+    instance.setCropBoxData?.({
+      left: newLeft,
+      top: newTop,
+      width: newWidth,
+      height: newHeight
+    });
+    return true;
+  };
+
+  const normalizeCanvasForFill = (sourceCanvas: HTMLCanvasElement): HTMLCanvasElement => {
+    const width = sourceCanvas.width;
+    const height = sourceCanvas.height;
+    if (width <= MAX_FILL_DIMENSION && height <= MAX_FILL_DIMENSION) {
+      return sourceCanvas;
+    }
+
+    const ratio = Math.min(MAX_FILL_DIMENSION / width, MAX_FILL_DIMENSION / height);
+    const normalized = document.createElement('canvas');
+    normalized.width = Math.max(1, Math.floor(width * ratio));
+    normalized.height = Math.max(1, Math.floor(height * ratio));
+    const ctx = normalized.getContext('2d');
+    if (!ctx) return sourceCanvas;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(sourceCanvas, 0, 0, normalized.width, normalized.height);
+    return normalized;
   };
 
   const handleSave = () => {
@@ -81,17 +154,32 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
       
       setIsGenerating(true);
       try {
+          const frameWasClamped = clampOutpaintFrame(cropper);
+          if (frameWasClamped) {
+              toast('Frame optimized for reliable generation', { duration: 1600 });
+          }
+
+          const stats = getOutpaintStats(cropper);
+          if (!stats || stats.outsideSum < MIN_OUTPAINT_MARGIN_PX) {
+              toast.error('Huzd a keretet picit a kepen kivulre a kiterjeszteshez');
+              setIsGenerating(false);
+              return;
+          }
+
           // Get the canvas, filling the "outside" areas with white
-          const canvas = cropper.getCroppedCanvas({
+          const rawCanvas = cropper.getCroppedCanvas({
               fillColor: '#ffffff'
           });
-          if (!canvas) {
+          if (!rawCanvas) {
               toast.error('Failed to prepare canvas for fill');
               setIsGenerating(false);
               return;
           }
-          
-          canvas.toBlob(async (blob: Blob | null) => {
+
+          const normalizedCanvas = normalizeCanvasForFill(rawCanvas);
+          const sourceWasResized = normalizedCanvas !== rawCanvas;
+
+          normalizedCanvas.toBlob(async (blob: Blob | null) => {
               if (!blob) {
                   toast.error('Failed to generate fill source image');
                   setIsGenerating(false);
@@ -99,6 +187,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
               }
 
               try {
+                  if (sourceWasResized) {
+                      toast('Large frame detected: optimized before AI call', { duration: 1800 });
+                  }
                   const newUrl = await onGenerativeFill(blob);
                   setCurrentImageUrl(newUrl); // Update editor with new image
                   cropper.once?.('ready', () => fitCropBoxToImageWithRetry(cropper));
