@@ -1,11 +1,116 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AiResolution, ImageItem, AspectRatio, OutputFormat } from "../types";
-import { fileToBase64, convertImageFormat } from "./imageUtils";
+import { convertImageFormat } from "./imageUtils";
 
 const getApiKey = () => localStorage.getItem('gemini_api_key') || process.env.API_KEY || '';
 
-const MODEL_NAME = 'gemini-3.1-flash-image-preview';
-const TEXT_MODEL = 'gemini-3.1-pro-preview';
+let aiClient: GoogleGenAI | null = null;
+const getAiClient = () => {
+  const apiKey = getApiKey();
+  if (!aiClient && apiKey) {
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+};
+
+const IMAGE_MODEL_STORAGE_KEY = 'banana_model_image';
+const TEXT_MODEL_STORAGE_KEY = 'banana_model_text';
+const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+const DEFAULT_TEXT_MODEL = 'gemini-3.1-pro-preview';
+const MAX_MODEL_INPUT_DIMENSION = 2048;
+
+const getConfiguredModelName = (storageKey: string, fallback: string): string => {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const normalized = raw?.trim();
+    return normalized ? normalized : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const getImageModelName = () => getConfiguredModelName(IMAGE_MODEL_STORAGE_KEY, DEFAULT_IMAGE_MODEL);
+const getTextModelName = () => getConfiguredModelName(TEXT_MODEL_STORAGE_KEY, DEFAULT_TEXT_MODEL);
+
+const blobToBase64 = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(blob);
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+
+const normalizeImageBlobForModel = (source: Blob, maxDimension = MAX_MODEL_INPUT_DIMENSION): Promise<Blob> =>
+  new Promise((resolve) => {
+    const url = URL.createObjectURL(source);
+    const image = new Image();
+
+    image.onload = () => {
+      const width = image.width;
+      const height = image.height;
+      const ratio = Math.min(1, maxDimension / Math.max(width, height));
+      const outWidth = Math.max(1, Math.floor(width * ratio));
+      const outHeight = Math.max(1, Math.floor(height * ratio));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = outWidth;
+      canvas.height = outHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        resolve(source);
+        return;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(image, 0, 0, outWidth, outHeight);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        resolve(blob || source);
+      }, 'image/png', 0.92);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(source);
+    };
+
+    image.src = url;
+  });
+
+const buildInlineImagePart = async (source: Blob): Promise<{ mimeType: string; data: string }> => {
+  const normalized = await normalizeImageBlobForModel(source);
+  return {
+    mimeType: 'image/png',
+    data: await blobToBase64(normalized),
+  };
+};
+
+const isNetworkLikeError = (error: any): boolean => {
+  const msg = String(error?.message || error || '');
+  return error instanceof TypeError || /NetworkError|Failed to fetch|Load failed|CORS|network request/i.test(msg);
+};
+
+const callGenerateContentWithRetry = async (ai: GoogleGenAI, request: any, retries = 1): Promise<any> => {
+  let lastError: any;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await ai.models.generateContent(request);
+    } catch (error) {
+      lastError = error;
+      if (!isNetworkLikeError(error) || attempt === retries) {
+        throw error;
+      }
+      await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+};
 
 export const processImageWithGemini = async (item: ImageItem): Promise<{
   processedUrl: string;
@@ -14,8 +119,10 @@ export const processImageWithGemini = async (item: ImageItem): Promise<{
   size: number;
 }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const base64Data = await fileToBase64(item.file);
+    const ai = getAiClient();
+    if (!ai) throw new Error("API Key not found. Please authenticate first.");
+    const imageModel = getImageModelName();
+    const inlineData = await buildInlineImagePart(item.file);
 
     // Detect if user specifically asks for removal
     const promptLower = (item.userPrompt || "").toLowerCase();
@@ -81,12 +188,12 @@ export const processImageWithGemini = async (item: ImageItem): Promise<{
       - Quality: 8k, Photorealistic, No artifacts.
     `;
 
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+    const response = await callGenerateContentWithRetry(ai, {
+      model: imageModel,
       contents: {
         parts: [
           { text: prompt },
-          { inlineData: { mimeType: item.file.type, data: base64Data } },
+          { inlineData },
         ],
       },
       config: {
@@ -123,6 +230,9 @@ export const processImageWithGemini = async (item: ImageItem): Promise<{
 
   } catch (error) {
     console.error("Gemini API Error:", error);
+    if (isNetworkLikeError(error)) {
+      throw new Error("Network/API connection error (CORS or blocked request). Check API key, browser privacy/adblock, and internet.");
+    }
     throw error;
   }
 };
@@ -132,10 +242,12 @@ export const generateImageFromText = async (
   config: { format: OutputFormat; resolution: AiResolution; aspectRatio: AspectRatio }
 ): Promise<{ processedUrl: string; width: number; height: number; size: number }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = getAiClient();
+    if (!ai) throw new Error("API Key not found. Please authenticate first.");
+    const imageModel = getImageModelName();
 
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+    const response = await callGenerateContentWithRetry(ai, {
+      model: imageModel,
       contents: { parts: [{ text: `Generate a high-quality image: ${prompt}` }] },
       config: {
         imageConfig: {
@@ -171,6 +283,9 @@ export const generateImageFromText = async (
 
   } catch (error) {
     console.error("Text to Image Error:", error);
+    if (isNetworkLikeError(error)) {
+      throw new Error("Network/API connection error (CORS or blocked request). Check API key, browser privacy/adblock, and internet.");
+    }
     throw error;
   }
 };
@@ -180,9 +295,10 @@ export const processGenerativeFill = async (
   format: OutputFormat = OutputFormat.PNG
 ): Promise<{ processedUrl: string; width: number; height: number; size: number }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const buffer = await imageBlob.arrayBuffer();
-    const base64Data = btoa(new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+    const ai = getAiClient();
+    if (!ai) throw new Error("API Key not found. Please authenticate first.");
+    const imageModel = getImageModelName();
+    const inlineData = await buildInlineImagePart(imageBlob);
 
     const prompt = `
       TASK: SEAMLESS TEXTURE EXTRAPOLATION (OUTPAINTING).
@@ -193,12 +309,12 @@ export const processGenerativeFill = async (
       4. NO DISTORTION: Do not stretch the original content.
     `;
 
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+    const response = await callGenerateContentWithRetry(ai, {
+      model: imageModel,
       contents: {
         parts: [
           { text: prompt },
-          { inlineData: { mimeType: 'image/png', data: base64Data } },
+          { inlineData },
         ],
       },
       config: {
@@ -234,6 +350,9 @@ export const processGenerativeFill = async (
 
   } catch (error) {
     console.error("Generative Fill Error:", error);
+    if (isNetworkLikeError(error)) {
+      throw new Error("Network/API connection error (CORS or blocked request). Check API key, browser privacy/adblock, and internet.");
+    }
     throw error;
   }
 };
@@ -244,7 +363,9 @@ export const processCompositeGeneration = async (
   config: { format: OutputFormat; resolution: AiResolution; aspectRatio: AspectRatio }
 ): Promise<{ processedUrl: string; width: number; height: number; size: number }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = getAiClient();
+    if (!ai) throw new Error("API Key not found. Please authenticate first.");
+    const imageModel = getImageModelName();
 
     const parts: any[] = [
       {
@@ -265,24 +386,12 @@ export const processCompositeGeneration = async (
 
     const batch = images.slice(0, 4);
     for (const img of batch) {
-      let mimeType = img.file.type;
-      let b64 = await fileToBase64(img.file);
-
-      if (mimeType === 'image/svg+xml') {
-        try {
-          const { blob } = await convertImageFormat(b64, OutputFormat.PNG, 'image/svg+xml');
-          b64 = await fileToBase64(new File([blob], "converted.png", { type: "image/png" }));
-          mimeType = 'image/png';
-        } catch (e) { console.warn("SVG rasterize failed", e); }
-      }
-
-      parts.push({
-        inlineData: { mimeType: mimeType, data: b64 }
-      });
+      const inlineData = await buildInlineImagePart(img.file);
+      parts.push({ inlineData });
     }
 
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+    const response = await callGenerateContentWithRetry(ai, {
+      model: imageModel,
       contents: { parts },
       config: {
         imageConfig: {
@@ -318,13 +427,18 @@ export const processCompositeGeneration = async (
 
   } catch (error) {
     console.error("Composite Error:", error);
+    if (isNetworkLikeError(error)) {
+      throw new Error("Network/API connection error (CORS or blocked request). Check API key, browser privacy/adblock, and internet.");
+    }
     throw error;
   }
 };
 
 export const extractTextFromImages = async (images: ImageItem[]): Promise<string> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = getAiClient();
+    if (!ai) throw new Error("API Key not found. Please authenticate first.");
+    const textModel = getTextModelName();
     const batch = images.slice(0, 5);
     const parts: any[] = [{
       text: `
@@ -343,12 +457,12 @@ export const extractTextFromImages = async (images: ImageItem[]): Promise<string
           blob = await r.blob() as File;
         } catch (e) { }
       }
-      const b64 = await fileToBase64(blob);
-      parts.push({ inlineData: { mimeType: img.file.type, data: b64 } });
+      const inlineData = await buildInlineImagePart(blob);
+      parts.push({ inlineData });
     }
 
-    const response = await ai.models.generateContent({
-      model: TEXT_MODEL,
+    const response = await callGenerateContentWithRetry(ai, {
+      model: textModel,
       contents: { parts },
     });
 
@@ -361,9 +475,11 @@ export const extractTextFromImages = async (images: ImageItem[]): Promise<string
 
 export const enhancePrompt = async (originalPrompt: string): Promise<string> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const response = await ai.models.generateContent({
-      model: TEXT_MODEL,
+    const ai = getAiClient();
+    if (!ai) return originalPrompt;
+    const textModel = getTextModelName();
+    const response = await callGenerateContentWithRetry(ai, {
+      model: textModel,
       contents: {
         parts: [{
           text: `

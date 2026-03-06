@@ -23,6 +23,11 @@ import { loadSessionImages, saveSessionImages } from './services/storageService'
 
 import { Loader2, Download, Sparkles, Lock, Wand2, BookOpen, PenTool, Layers, CopyCheck, BrainCircuit, ChevronDown, ClipboardCopy, PlusSquare, FileText, X, Copy, Check, Trash2, Keyboard, Globe, Layout } from 'lucide-react';
 
+const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+const DEFAULT_TEXT_MODEL = 'gemini-3.1-pro-preview';
+const IMAGE_MODEL_STORAGE_KEY = 'banana_model_image';
+const TEXT_MODEL_STORAGE_KEY = 'banana_model_text';
+
 const App: React.FC = () => {
     const { t, i18n } = useTranslation();
     const [hasKey, setHasKey] = useState<boolean>(false);
@@ -66,6 +71,8 @@ const App: React.FC = () => {
     const [isPasting, setIsPasting] = useState(false);
 
     const [isGeneratingNative, setIsGeneratingNative] = useState(false);
+    const [imageModelName, setImageModelName] = useState<string>(() => localStorage.getItem(IMAGE_MODEL_STORAGE_KEY) || DEFAULT_IMAGE_MODEL);
+    const [textModelName, setTextModelName] = useState<string>(() => localStorage.getItem(TEXT_MODEL_STORAGE_KEY) || DEFAULT_TEXT_MODEL);
 
     // Load Session on Mount
     useEffect(() => {
@@ -89,11 +96,27 @@ const App: React.FC = () => {
     useEffect(() => {
         if (isRestored && images.length > 0) {
             const timer = setTimeout(() => {
-                saveSessionImages(images)?.catch(e => console.error("Auto-save failed", e));
+                (async () => {
+                    try {
+                        await saveSessionImages(images);
+                    } catch (e) {
+                        console.error("Auto-save failed", e);
+                    }
+                })();
             }, 1000); // Debounce save
             return () => clearTimeout(timer);
         }
     }, [images, isRestored]);
+
+    useEffect(() => {
+        const normalized = imageModelName.trim() || DEFAULT_IMAGE_MODEL;
+        localStorage.setItem(IMAGE_MODEL_STORAGE_KEY, normalized);
+    }, [imageModelName]);
+
+    useEffect(() => {
+        const normalized = textModelName.trim() || DEFAULT_TEXT_MODEL;
+        localStorage.setItem(TEXT_MODEL_STORAGE_KEY, normalized);
+    }, [textModelName]);
 
 
     // Close lang menu on click outside
@@ -926,6 +949,10 @@ const App: React.FC = () => {
                                 )}
                             </AnimatePresence>
                         </div>
+                        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-emerald-600/40 rounded-lg text-sm font-medium transition-all text-slate-200">
+                            <Lock className="w-4 h-4 text-emerald-400" />
+                            <span className="hidden md:block">API Keys</span>
+                        </a>
                         <button onClick={() => setIsGuideOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-lg text-sm font-medium transition-all">
                             <BookOpen className="w-4 h-4 text-indigo-400" />
                             <span className="hidden md:block">{t('docs')}</span>
@@ -955,7 +982,7 @@ const App: React.FC = () => {
                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="sticky top-24 z-40 mb-10">
                             <div className="bg-[#0f172a]/95 backdrop-blur-2xl rounded-2xl border border-slate-700/50 p-3 shadow-2xl flex flex-col xl:flex-row gap-4 max-w-[1400px] mx-auto">
 
-                                <div className="flex-1 bg-slate-950/50 rounded-xl border border-slate-800/50 p-3 flex flex-col md:flex-row gap-3 items-center relative">
+                                <div className="flex-1 bg-slate-950/50 rounded-xl border border-slate-800/50 p-3 flex flex-col md:flex-row md:flex-wrap gap-3 items-center relative">
                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest px-2">
                                         <Layers className="w-4 h-4" /> {t('globalConfig')}
                                     </div>
@@ -1005,49 +1032,78 @@ const App: React.FC = () => {
                                         <div className="h-[34px] w-full"></div>
                                     </div>
 
+                                    <div className="w-full basis-full grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold pl-1">Image Model</label>
+                                            <input
+                                                type="text"
+                                                value={imageModelName}
+                                                onChange={(e) => setImageModelName(e.target.value)}
+                                                placeholder={DEFAULT_IMAGE_MODEL}
+                                                className="w-full bg-slate-900 border border-slate-700 text-slate-300 text-xs rounded-lg px-3 py-2.5 outline-none focus:border-emerald-500/50"
+                                                title="Image model ID"
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold pl-1">Text Model</label>
+                                            <input
+                                                type="text"
+                                                value={textModelName}
+                                                onChange={(e) => setTextModelName(e.target.value)}
+                                                placeholder={DEFAULT_TEXT_MODEL}
+                                                className="w-full bg-slate-900 border border-slate-700 text-slate-300 text-xs rounded-lg px-3 py-2.5 outline-none focus:border-indigo-500/50"
+                                                title="Text model ID"
+                                            />
+                                        </div>
+                                    </div>
+
                                     <button onClick={applyBulkSettings} className={`w-full md:w-auto px-6 py-2.5 rounded-lg font-bold text-xs uppercase tracking-wide transition-all flex items-center justify-center gap-2 whitespace-nowrap z-10 ${isApplied ? 'bg-emerald-500 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
                                         {isApplied ? <CopyCheck className="w-4 h-4" /> : <Layers className="w-4 h-4" />} {isApplied ? t('settingsSynced') : t('applyAll')}
                                     </button>
                                 </div>
 
-                                <div className="bg-slate-900 rounded-xl border border-slate-800 p-3 flex flex-wrap items-center gap-3 justify-start z-10">
-                                    <div className="flex flex-col items-start px-2 whitespace-nowrap">
-                                        <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest">
-                                            <BrainCircuit className="w-4 h-4" /> {t('queue')}
+                                <div className="bg-slate-900 rounded-xl border border-slate-800 p-3 flex flex-col gap-3 z-10">
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <div className="flex flex-col items-start px-2 whitespace-nowrap">
+                                            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                                <BrainCircuit className="w-4 h-4" /> {t('queue')}
+                                            </div>
+                                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                                {originalCount} Orig | {variantCount} Vars
+                                            </div>
                                         </div>
-                                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                            {originalCount} Orig | {variantCount} Vars
+                                        <div className="h-8 w-px bg-slate-800 hidden md:block"></div>
+
+                                        <button onClick={clearQueue} className="shrink-0 p-2.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 rounded-lg border border-red-900/50 transition-all" title={t('clearQueue')}>
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+
+                                        <button onClick={openCompositeModal} className="shrink-0 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all shadow-lg shadow-pink-900/20">
+                                            <PlusSquare className="w-3.5 h-3.5" /> {t('composite')}
+                                        </button>
+
+                                        <button onClick={openOCRModal} disabled={isExtractingText} className="shrink-0 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all">
+                                            {isExtractingText ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />} {t('extractText')}
+                                        </button>
+
+                                        <div className="shrink-0 flex items-center bg-slate-950 rounded-lg border border-slate-800 px-2 h-[38px]">
+                                            <select value={namingPattern} onChange={(e) => setNamingPattern(e.target.value as NamingPattern)} className="bg-transparent text-xs text-slate-400 outline-none h-full cursor-pointer">
+                                                <option value={NamingPattern.ORIGINAL}>{t('originalName')}</option>
+                                                <option value={NamingPattern.RANDOM_ID}>{t('randomId')}</option>
+                                                <option value={NamingPattern.SEQUENTIAL_PREFIX}>{t('seqPrefix')}</option>
+                                            </select>
                                         </div>
                                     </div>
-                                    <div className="h-8 w-px bg-slate-800 hidden md:block"></div>
 
-                                    <button onClick={clearQueue} className="shrink-0 p-2.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 rounded-lg border border-red-900/50 transition-all" title={t('clearQueue')}>
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    <div className="flex items-center gap-3 pl-2">
+                                        <button onClick={processAll} disabled={globalProcessing} className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-white px-6 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 uppercase tracking-wide whitespace-nowrap shadow-lg shadow-emerald-900/20 transition-all">
+                                            {globalProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} {t('startQueue')}
+                                        </button>
 
-                                    <button onClick={openCompositeModal} className="shrink-0 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all shadow-lg shadow-pink-900/20">
-                                        <PlusSquare className="w-3.5 h-3.5" /> {t('composite')}
-                                    </button>
-
-                                    <button onClick={openOCRModal} disabled={isExtractingText} className="shrink-0 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all">
-                                        {isExtractingText ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />} {t('extractText')}
-                                    </button>
-
-                                    <div className="shrink-0 flex items-center bg-slate-950 rounded-lg border border-slate-800 px-2 h-[38px]">
-                                        <select value={namingPattern} onChange={(e) => setNamingPattern(e.target.value as NamingPattern)} className="bg-transparent text-xs text-slate-400 outline-none h-full cursor-pointer">
-                                            <option value={NamingPattern.ORIGINAL}>{t('originalName')}</option>
-                                            <option value={NamingPattern.RANDOM_ID}>{t('randomId')}</option>
-                                            <option value={NamingPattern.SEQUENTIAL_PREFIX}>{t('seqPrefix')}</option>
-                                        </select>
+                                        <button onClick={downloadAllProcessed} className="shrink-0 bg-white hover:bg-slate-200 text-slate-950 px-4 py-2.5 rounded-lg flex items-center justify-center shadow-lg transition-all">
+                                            <Download className="w-4 h-4" />
+                                        </button>
                                     </div>
-
-                                    <button onClick={processAll} disabled={globalProcessing} className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-white px-6 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 uppercase tracking-wide whitespace-nowrap shadow-lg shadow-emerald-900/20 transition-all">
-                                        {globalProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} {t('startQueue')}
-                                    </button>
-
-                                    <button onClick={downloadAllProcessed} className="shrink-0 bg-white hover:bg-slate-200 text-slate-950 px-4 py-2.5 rounded-lg flex items-center justify-center shadow-lg transition-all">
-                                        <Download className="w-4 h-4" />
-                                    </button>
                                 </div>
                             </div>
                         </motion.div>

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, MicOff, Loader2, Sparkles } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { GoogleGenAI, LiveServerMessage, Modality, Type } from '@google/genai';
 import { ImageItem } from '../types';
 
@@ -288,7 +289,13 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
         setIsConnecting(true);
 
         try {
-            const ai = new GoogleGenAI({ apiKey: localStorage.getItem('gemini_api_key') || process.env.API_KEY || '' });
+            const apiKey = localStorage.getItem('gemini_api_key') || process.env.API_KEY || '';
+            if (!apiKey) {
+                toast.error("API Key not found. Please authenticate first.");
+                setIsConnecting(false);
+                return;
+            }
+            const ai = new GoogleGenAI({ apiKey });
 
             const tools = [{
                 functionDeclarations: [
@@ -431,7 +438,7 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
             };
             updateVolume();
 
-            const sessionPromise = ai.live.connect({
+            const sessionConnection = ai.live.connect({
                 model: 'gemini-2.5-flash-native-audio-preview-12-2025',
                 config: {
                     tools: tools,
@@ -444,7 +451,8 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
                         setIsConnecting(false);
 
                         // Send initial state
-                        sessionPromise.then(s => {
+                        Promise.resolve(sessionConnection).then((s: any) => {
+                            if (!s) return;
                             s.sendToolResponse({
                                 functionResponses: {
                                     name: 'system_state_report',
@@ -452,7 +460,7 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
                                     response: { result: generateStateReport() }
                                 }
                             });
-                        }).catch(() => { });
+                        }).catch(() => {});
 
                         // Process Input Audio
                         const source = inputAudioContext.createMediaStreamSource(stream);
@@ -466,7 +474,8 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
                             const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
                             // Pass current hardware sample rate to the blob creator
                             const pcmBlob = createBlob(inputData, inputAudioContext.sampleRate);
-                            sessionPromise.then((session) => {
+                            Promise.resolve(sessionConnection).then((session: any) => {
+                                if (!session) return;
                                 session.sendRealtimeInput({ media: pcmBlob });
                             });
                         };
@@ -474,7 +483,7 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
                         source.connect(scriptProcessor);
                         scriptProcessor.connect(inputAudioContext.destination);
 
-                        sessionRef.current = sessionPromise;
+                        sessionRef.current = Promise.resolve(sessionConnection);
                     },
                     onmessage: async (message: LiveServerMessage) => {
                         if (message.toolCall) {
@@ -522,7 +531,10 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
                                     onAudit();
                                     result = { ok: true, message: "Audit running." };
                                 } else if (fc.name === 'request_visual_context') {
-                                    sessionPromise.then(s => sendVisualContext(s));
+                                    Promise.resolve(sessionConnection).then((s: any) => {
+                                        if (!s) return;
+                                        sendVisualContext(s);
+                                    });
                                     continue;
                                 } else if (fc.name === 'manage_ui_state') {
                                     onCommand({ uiAction: args.action, value: args.value });
@@ -540,7 +552,10 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
                             }
 
                             if (functionResponses.length > 0) {
-                                sessionPromise.then(s => s.sendToolResponse({ functionResponses }));
+                                Promise.resolve(sessionConnection).then((s: any) => {
+                                    if (!s) return;
+                                    s.sendToolResponse({ functionResponses });
+                                });
                             }
                             setTimeout(() => setIsExecuting(false), 500);
                         }
