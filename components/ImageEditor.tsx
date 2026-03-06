@@ -1,7 +1,7 @@
 
 import React, { useRef, useState } from 'react';
 import Cropper from 'react-cropper';
-import { X, Check, RotateCw, ZoomIn, ZoomOut, Sparkles, Maximize, Download } from 'lucide-react';
+import { X, Check, RotateCw, ZoomIn, ZoomOut, Sparkles, Maximize, Download, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { LoadingOverlay } from './LoadingOverlay';
@@ -25,6 +25,31 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
   
   // Download config within editor
   const [downloadFormat, setDownloadFormat] = useState<OutputFormat>(OutputFormat.PNG);
+
+  const fitCropBoxToImage = (instance: any): boolean => {
+    if (!instance) return false;
+    const imageData = instance.getImageData?.();
+    if (!imageData || !Number.isFinite(imageData.width) || !Number.isFinite(imageData.height) || imageData.width <= 0 || imageData.height <= 0) {
+      return false;
+    }
+
+    instance.crop?.();
+    instance.setCropBoxData?.({
+      left: imageData.left,
+      top: imageData.top,
+      width: imageData.width,
+      height: imageData.height
+    });
+    return true;
+  };
+
+  const fitCropBoxToImageWithRetry = (instance: any, attemptsLeft = 6) => {
+    if (!instance) return;
+    const applied = fitCropBoxToImage(instance);
+    if (!applied && attemptsLeft > 0) {
+      window.setTimeout(() => fitCropBoxToImageWithRetry(instance, attemptsLeft - 1), 60);
+    }
+  };
 
   const handleSave = () => {
     if (!cropper) return;
@@ -80,6 +105,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
                   const newUrl = await onGenerativeFill(blob);
                   setCurrentImageUrl(newUrl); // Update editor with new image
                   cropper.replace(newUrl); // Reset cropper to new image
+                  fitCropBoxToImageWithRetry(cropper); // Make crop frame match generated image by default
                   setHasGenerated(true);
               } catch (e) {
                   console.error(e);
@@ -146,11 +172,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
                 initialAspectRatio={NaN}
                 guides={true}
                 ref={cropperRef}
-                onInitialized={(instance) => setCropper(instance)}
+                onInitialized={(instance) => {
+                  setCropper(instance);
+                  fitCropBoxToImageWithRetry(instance);
+                }}
                 background={true}
                 viewMode={0} // Allows crop box to be outside the image
                 dragMode="move"
-                autoCropArea={0.8}
+                autoCropArea={1}
                 checkOrientation={false}
             />
             
@@ -170,24 +199,30 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
           {hasGenerated && (
               <motion.div 
                 initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                className="bg-emerald-950/30 border-b border-emerald-900/30 px-6 py-3 flex items-center justify-between"
+                className="bg-emerald-950/30 border-b border-emerald-900/30 px-6 py-3"
               >
-                  <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
-                      <Sparkles className="w-4 h-4" /> {t('fillComplete')}
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold">
+                          <Sparkles className="w-4 h-4" /> {t('fillComplete')}
+                      </div>
+                      <div className="flex items-center gap-2">
+                          <select 
+                            value={downloadFormat}
+                            onChange={(e) => setDownloadFormat(e.target.value as OutputFormat)}
+                            className="bg-slate-950 border border-slate-700 text-slate-300 text-xs rounded px-2 py-1.5 outline-none"
+                          >
+                              <option value={OutputFormat.JPG}>JPG</option>
+                              <option value={OutputFormat.PNG}>PNG</option>
+                              <option value={OutputFormat.WEBP}>WEBP</option>
+                          </select>
+                          <button onClick={handleImmediateDownload} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold transition-colors">
+                              <Download className="w-3.5 h-3.5" /> {t('downloadResult')}
+                          </button>
+                      </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                      <select 
-                        value={downloadFormat}
-                        onChange={(e) => setDownloadFormat(e.target.value as OutputFormat)}
-                        className="bg-slate-950 border border-slate-700 text-slate-300 text-xs rounded px-2 py-1.5 outline-none"
-                      >
-                          <option value={OutputFormat.JPG}>JPG</option>
-                          <option value={OutputFormat.PNG}>PNG</option>
-                          <option value={OutputFormat.WEBP}>WEBP</option>
-                      </select>
-                      <button onClick={handleImmediateDownload} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold transition-colors">
-                          <Download className="w-3.5 h-3.5" /> {t('downloadResult')}
-                      </button>
+                  <div className="mt-2 flex items-start gap-1.5 text-[11px] text-emerald-100/70">
+                      <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span>{t('editorFrameHint', { defaultValue: 'A letoltes a keret tartalmat menti. Igazitsd a keretet a kivant vegso kepmerethez.' })}</span>
                   </div>
               </motion.div>
           )}
