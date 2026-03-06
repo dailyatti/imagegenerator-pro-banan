@@ -21,12 +21,13 @@ import { getImageDimensions, fileToBase64 } from './services/imageUtils';
 import { processImageWithGemini, extractTextFromImages, processCompositeGeneration, processGenerativeFill, generateImageFromText } from './services/geminiService';
 import { loadSessionImages, saveSessionImages } from './services/storageService';
 
-import { Loader2, Download, Sparkles, Lock, Wand2, BookOpen, PenTool, Layers, CopyCheck, BrainCircuit, ChevronDown, ClipboardCopy, PlusSquare, FileText, X, Copy, Check, Trash2, Keyboard, Globe, Layout } from 'lucide-react';
+import { Loader2, Download, Sparkles, Lock, Wand2, BookOpen, PenTool, Layers, CopyCheck, BrainCircuit, ChevronDown, ClipboardCopy, PlusSquare, FileText, X, Copy, Check, Trash2, Keyboard, Globe, Layout, Pin, PinOff } from 'lucide-react';
 
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 const DEFAULT_TEXT_MODEL = 'gemini-3.1-pro-preview';
 const IMAGE_MODEL_STORAGE_KEY = 'banana_model_image';
 const TEXT_MODEL_STORAGE_KEY = 'banana_model_text';
+const TOOLBAR_PIN_STORAGE_KEY = 'banana_toolbar_pinned';
 
 const App: React.FC = () => {
     const { t, i18n } = useTranslation();
@@ -73,6 +74,7 @@ const App: React.FC = () => {
     const [isGeneratingNative, setIsGeneratingNative] = useState(false);
     const [imageModelName, setImageModelName] = useState<string>(() => localStorage.getItem(IMAGE_MODEL_STORAGE_KEY) || DEFAULT_IMAGE_MODEL);
     const [textModelName, setTextModelName] = useState<string>(() => localStorage.getItem(TEXT_MODEL_STORAGE_KEY) || DEFAULT_TEXT_MODEL);
+    const [isToolbarPinned, setIsToolbarPinned] = useState<boolean>(() => localStorage.getItem(TOOLBAR_PIN_STORAGE_KEY) !== 'false');
 
     // Load Session on Mount
     useEffect(() => {
@@ -117,6 +119,10 @@ const App: React.FC = () => {
         const normalized = textModelName.trim() || DEFAULT_TEXT_MODEL;
         localStorage.setItem(TEXT_MODEL_STORAGE_KEY, normalized);
     }, [textModelName]);
+
+    useEffect(() => {
+        localStorage.setItem(TOOLBAR_PIN_STORAGE_KEY, isToolbarPinned ? 'true' : 'false');
+    }, [isToolbarPinned]);
 
 
     // Close lang menu on click outside
@@ -979,7 +985,7 @@ const App: React.FC = () => {
 
                 <AnimatePresence>
                     {images.length > 0 && (
-                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="sticky top-24 z-40 mb-10">
+                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={`${isToolbarPinned ? 'sticky top-24' : 'relative'} z-40 mb-10`}>
                             <div className="bg-[#0f172a]/95 backdrop-blur-2xl rounded-2xl border border-slate-700/50 p-3 shadow-2xl flex flex-col xl:flex-row gap-4 max-w-[1400px] mx-auto">
 
                                 <div className="flex-1 bg-slate-950/50 rounded-xl border border-slate-800/50 p-3 flex flex-col md:flex-row md:flex-wrap gap-3 items-center relative">
@@ -1093,6 +1099,15 @@ const App: React.FC = () => {
                                                 <option value={NamingPattern.SEQUENTIAL_PREFIX}>{t('seqPrefix')}</option>
                                             </select>
                                         </div>
+
+                                        <button
+                                            onClick={() => setIsToolbarPinned(prev => !prev)}
+                                            className="shrink-0 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all"
+                                            title={isToolbarPinned ? 'Unpin top toolbar' : 'Pin top toolbar'}
+                                        >
+                                            {isToolbarPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                                            {isToolbarPinned ? 'Unpin' : 'Pin'}
+                                        </button>
                                     </div>
 
                                     <div className="flex items-center gap-3 pl-2">

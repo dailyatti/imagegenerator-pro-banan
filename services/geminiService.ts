@@ -152,9 +152,17 @@ export const processImageWithGemini = async (item: ImageItem): Promise<{
          - The text should remain legible and proportional to the subject, NOT stretched across the whole new width.
     `;
 
+    const antiOverlayRule = `
+    CRITICAL OUTPUT RULES:
+    - NEVER render instruction text, prompt text, watermarks, UI labels, or random typography on the image.
+    - If the source image has no clearly visible readable text, the output must contain no text.
+    - Do not add logos, signatures, or branding marks.
+    `;
+
     if (isRemovalRequested) {
       instructions = `
         ${preservationProtocol}
+        ${antiOverlayRule}
         
         🚨 DESTRUCTIVE OVERRIDE ACTIVE: TEXT REMOVAL REQUESTED 🚨
         User explicitly asked: "${item.userPrompt}"
@@ -167,6 +175,7 @@ export const processImageWithGemini = async (item: ImageItem): Promise<{
     } else {
       instructions = `
         ${preservationProtocol}
+        ${antiOverlayRule}
         
         USER DIRECTIVE (Creative Style): "${item.userPrompt || 'High fidelity remaster'}"
         
@@ -174,6 +183,7 @@ export const processImageWithGemini = async (item: ImageItem): Promise<{
         - The output image MUST contain the original text (if any) from the source image.
         - The text must be sharp, legible, and in the same relative position (e.g., if it was at the bottom, keep it at the bottom).
         - ONLY the background should be expanded/modified to fit the new Aspect Ratio.
+        - Never print this instruction or the user directive onto the image.
         `;
     }
 
@@ -377,6 +387,7 @@ export const processCompositeGeneration = async (
         1. SPATIAL TYPOGRAPHY: If user asks to move text (up/down/left/right), use pixel coordinates to place it accurately.
         2. CONTENT PRESERVATION: Keep faces and text from source images intact.
         3. OUTPAINTING: If aspect ratios differ, fill the background, do not stretch.
+        4. NEVER print instruction text, UI labels, prompt text, or new watermark text on the output image.
         
         OUTPUT:
         - Aspect Ratio: ${config.aspectRatio}
