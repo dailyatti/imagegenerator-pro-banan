@@ -1010,48 +1010,44 @@ const App: React.FC = () => {
                                     </button>
                                 </div>
 
-                                <div className="bg-slate-900 rounded-xl border border-slate-800 p-3 flex flex-col gap-3 z-10">
-                                    <div className="flex flex-wrap items-center gap-3">
-                                        <div className="flex flex-col items-start px-2 whitespace-nowrap">
-                                            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest">
-                                                <BrainCircuit className="w-4 h-4" /> {t('queue')}
-                                            </div>
-                                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                                {originalCount} Orig | {variantCount} Vars
-                                            </div>
+                                <div className="bg-slate-900 rounded-xl border border-slate-800 p-3 flex flex-wrap items-center gap-3 justify-start z-10">
+                                    <div className="flex flex-col items-start px-2 whitespace-nowrap">
+                                        <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                            <BrainCircuit className="w-4 h-4" /> {t('queue')}
                                         </div>
-                                        <div className="h-8 w-px bg-slate-800 hidden md:block"></div>
-
-                                        <button onClick={clearQueue} className="shrink-0 p-2.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 rounded-lg border border-red-900/50 transition-all" title={t('clearQueue')}>
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-
-                                        <button onClick={openCompositeModal} className="shrink-0 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all shadow-lg shadow-pink-900/20">
-                                            <PlusSquare className="w-3.5 h-3.5" /> {t('composite')}
-                                        </button>
-
-                                        <button onClick={openOCRModal} disabled={isExtractingText} className="shrink-0 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all">
-                                            {isExtractingText ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />} {t('extractText')}
-                                        </button>
-
-                                        <div className="shrink-0 flex items-center bg-slate-950 rounded-lg border border-slate-800 px-2 h-[38px]">
-                                            <select value={namingPattern} onChange={(e) => setNamingPattern(e.target.value as NamingPattern)} className="bg-transparent text-xs text-slate-400 outline-none h-full cursor-pointer">
-                                                <option value={NamingPattern.ORIGINAL}>{t('originalName')}</option>
-                                                <option value={NamingPattern.RANDOM_ID}>{t('randomId')}</option>
-                                                <option value={NamingPattern.SEQUENTIAL_PREFIX}>{t('seqPrefix')}</option>
-                                            </select>
+                                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                            {originalCount} Orig | {variantCount} Vars
                                         </div>
                                     </div>
+                                    <div className="h-8 w-px bg-slate-800 hidden md:block"></div>
 
-                                    <div className="flex items-center gap-3 pl-2">
-                                        <button onClick={processAll} disabled={globalProcessing} className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-white px-6 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 uppercase tracking-wide whitespace-nowrap shadow-lg shadow-emerald-900/20 transition-all">
-                                            {globalProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} {t('startQueue')}
-                                        </button>
+                                    <button onClick={clearQueue} className="shrink-0 p-2.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 rounded-lg border border-red-900/50 transition-all" title={t('clearQueue')}>
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
 
-                                        <button onClick={downloadAllProcessed} className="shrink-0 bg-white hover:bg-slate-200 text-slate-950 px-4 py-2.5 rounded-lg flex items-center justify-center shadow-lg transition-all">
-                                            <Download className="w-4 h-4" />
-                                        </button>
+                                    <button onClick={openCompositeModal} className="shrink-0 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all shadow-lg shadow-pink-900/20">
+                                        <PlusSquare className="w-3.5 h-3.5" /> {t('composite')}
+                                    </button>
+
+                                    <button onClick={openOCRModal} disabled={isExtractingText} className="shrink-0 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all">
+                                        {isExtractingText ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />} {t('extractText')}
+                                    </button>
+
+                                    <div className="shrink-0 flex items-center bg-slate-950 rounded-lg border border-slate-800 px-2 h-[38px]">
+                                        <select value={namingPattern} onChange={(e) => setNamingPattern(e.target.value as NamingPattern)} className="bg-transparent text-xs text-slate-400 outline-none h-full cursor-pointer">
+                                            <option value={NamingPattern.ORIGINAL}>{t('originalName')}</option>
+                                            <option value={NamingPattern.RANDOM_ID}>{t('randomId')}</option>
+                                            <option value={NamingPattern.SEQUENTIAL_PREFIX}>{t('seqPrefix')}</option>
+                                        </select>
                                     </div>
+
+                                    <button onClick={processAll} disabled={globalProcessing} className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-white px-6 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 uppercase tracking-wide whitespace-nowrap shadow-lg shadow-emerald-900/20 transition-all">
+                                        {globalProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} {t('startQueue')}
+                                    </button>
+
+                                    <button onClick={downloadAllProcessed} className="shrink-0 bg-white hover:bg-slate-200 text-slate-950 px-4 py-2.5 rounded-lg flex items-center justify-center shadow-lg transition-all">
+                                        <Download className="w-4 h-4" />
+                                    </button>
                                 </div>
                             </div>
                         </motion.div>
