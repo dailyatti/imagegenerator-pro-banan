@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { LoadingOverlay } from './LoadingOverlay';
 import { OutputFormat } from '../types';
+import { toast } from 'react-hot-toast';
 
 interface ImageEditorProps {
   imageUrl: string;
@@ -26,16 +27,30 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
   const [downloadFormat, setDownloadFormat] = useState<OutputFormat>(OutputFormat.PNG);
 
   const handleSave = () => {
-    if (typeof cropper !== 'undefined') {
-      cropper.getCroppedCanvas({
-          fillColor: '#ffffff' // Ensure transparent/empty areas are white for outpainting
-      }).toBlob((blob: Blob | null) => {
-        if (blob) {
-          const newUrl = URL.createObjectURL(blob);
-          onSave(newUrl, blob);
-          onClose();
-        }
+    if (!cropper) return;
+
+    try {
+      const canvas = cropper.getCroppedCanvas({
+        fillColor: '#ffffff' // Ensure transparent/empty areas are white for outpainting
       });
+      if (!canvas) {
+        toast.error('Could not save edited image.');
+        return;
+      }
+
+      canvas.toBlob((blob: Blob | null) => {
+        if (!blob) {
+          toast.error('Could not save edited image.');
+          return;
+        }
+
+        const newUrl = URL.createObjectURL(blob);
+        onSave(newUrl, blob);
+        onClose();
+      });
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not save edited image.');
     }
   };
 
@@ -48,40 +63,61 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageUrl, onSave, onCl
           const canvas = cropper.getCroppedCanvas({
               fillColor: '#ffffff'
           });
+          if (!canvas) {
+              toast.error('Failed to prepare canvas for fill');
+              setIsGenerating(false);
+              return;
+          }
           
           canvas.toBlob(async (blob: Blob | null) => {
-              if (blob) {
-                  try {
-                      const newUrl = await onGenerativeFill(blob);
-                      setCurrentImageUrl(newUrl); // Update editor with new image
-                      cropper.replace(newUrl); // Reset cropper to new image
-                      setHasGenerated(true);
-                  } catch (e) {
-                      console.error(e);
-                  } finally {
-                      setIsGenerating(false);
-                  }
+              if (!blob) {
+                  toast.error('Failed to generate fill source image');
+                  setIsGenerating(false);
+                  return;
+              }
+
+              try {
+                  const newUrl = await onGenerativeFill(blob);
+                  setCurrentImageUrl(newUrl); // Update editor with new image
+                  cropper.replace(newUrl); // Reset cropper to new image
+                  setHasGenerated(true);
+              } catch (e) {
+                  console.error(e);
+              } finally {
+                  setIsGenerating(false);
               }
           }, 'image/png');
 
       } catch (e) {
+          console.error(e);
+          toast.error('Fill operation failed');
           setIsGenerating(false);
       }
   };
 
   const handleImmediateDownload = () => {
       if (cropper) {
-          const canvas = cropper.getCroppedCanvas({ fillColor: '#ffffff' });
-          const mimeType = downloadFormat;
-          const dataUrl = canvas.toDataURL(mimeType, 0.95);
-          
-          const link = document.createElement('a');
-          link.href = dataUrl;
-          const ext = mimeType.split('/')[1];
-          link.download = `banana_outpaint_${Date.now()}.${ext}`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          try {
+              const canvas = cropper.getCroppedCanvas({ fillColor: '#ffffff' });
+              if (!canvas) {
+                  toast.error('Download failed');
+                  return;
+              }
+
+              const mimeType = downloadFormat;
+              const dataUrl = canvas.toDataURL(mimeType, 0.95);
+              
+              const link = document.createElement('a');
+              link.href = dataUrl;
+              const ext = mimeType.split('/')[1];
+              link.download = `banana_outpaint_${Date.now()}.${ext}`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+          } catch (e) {
+              console.error(e);
+              toast.error('Download failed');
+          }
       }
   };
 

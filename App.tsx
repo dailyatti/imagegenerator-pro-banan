@@ -107,6 +107,17 @@ const App: React.FC = () => {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
+    // Global Cleanup on Unmount
+    useEffect(() => {
+        return () => {
+            // Revoke all URLs to prevent leaks on refresh/unmount
+            images.forEach(img => {
+                if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+                if (img.processedUrl) URL.revokeObjectURL(img.processedUrl);
+            });
+        };
+    }, [images]);
+
     useEffect(() => {
         const checkKey = async () => {
             try {
@@ -120,6 +131,25 @@ const App: React.FC = () => {
         };
         checkKey();
     }, []);
+
+    const resolveOutputFormatFromMime = (mimeType?: string): OutputFormat => {
+        if (!mimeType) return OutputFormat.PNG;
+        const normalizedMime = mimeType.toLowerCase();
+        if (normalizedMime === OutputFormat.JPG || normalizedMime === 'image/jpg') return OutputFormat.JPG;
+        if (normalizedMime === OutputFormat.WEBP) return OutputFormat.WEBP;
+        return OutputFormat.PNG;
+    };
+
+    const getDownloadSource = (item: ImageItem): { url: string; format: OutputFormat } | null => {
+        if (item.processedUrl) {
+            return { url: item.processedUrl, format: item.targetFormat };
+        }
+        if (item.previewUrl) {
+            const format = resolveOutputFormatFromMime(item.file?.type || item.originalMeta.type);
+            return { url: item.previewUrl, format };
+        }
+        return null;
+    };
 
     const handleSelectKey = async () => {
         if (window.aistudio && window.aistudio.openSelectKey) {
@@ -251,12 +281,21 @@ const App: React.FC = () => {
     };
 
     const removeImage = (id: string) => {
+        const item = images.find(img => img.id === id);
+        if (item) {
+            if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+            if (item.processedUrl) URL.revokeObjectURL(item.processedUrl);
+        }
         setImages(prev => prev.filter(img => img.id !== id));
         toast('Asset removed', { icon: '🗑️', style: { borderRadius: '10px', background: '#333', color: '#fff' } });
     };
 
     const clearQueue = async () => {
         if (images.length === 0) return;
+        images.forEach(img => {
+            if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+            if (img.processedUrl) URL.revokeObjectURL(img.processedUrl);
+        });
         setImages([]);
         try {
             await saveSessionImages([]);
@@ -281,6 +320,9 @@ const App: React.FC = () => {
                     id: uuidv4(),
                     targetAspectRatio: r,
                     status: ProcessingStatus.IDLE,
+                    processedUrl: undefined,
+                    processedMeta: undefined,
+                    errorMessage: undefined,
                     duplicateIndex: baseIndex + (idx + 1),
                     originalMeta: { ...originalItem.originalMeta, name: `${originalItem.originalMeta.name} (${r})` }
                 });
@@ -293,6 +335,9 @@ const App: React.FC = () => {
                     id: uuidv4(),
                     targetFormat: f,
                     status: ProcessingStatus.IDLE,
+                    processedUrl: undefined,
+                    processedMeta: undefined,
+                    errorMessage: undefined,
                     duplicateIndex: baseIndex + (idx + 1),
                     originalMeta: { ...originalItem.originalMeta, name: `${originalItem.originalMeta.name} (${f.split('/')[1].toUpperCase()})` }
                 });
@@ -303,6 +348,9 @@ const App: React.FC = () => {
                     ...originalItem,
                     id: uuidv4(),
                     status: ProcessingStatus.IDLE,
+                    processedUrl: undefined,
+                    processedMeta: undefined,
+                    errorMessage: undefined,
                     duplicateIndex: baseIndex + (i + 1),
                     originalMeta: { ...originalItem.originalMeta, name: `${originalItem.originalMeta.name} (Var ${i + 1})` }
                 });
@@ -327,6 +375,9 @@ const App: React.FC = () => {
             ...originalItem,
             id: variantId,
             status: ProcessingStatus.PROCESSING,
+            processedUrl: undefined,
+            processedMeta: undefined,
+            errorMessage: undefined,
             duplicateIndex: (originalItem.duplicateIndex || 1) + 1,
             originalMeta: { ...originalItem.originalMeta, name: `${originalItem.originalMeta.name} (Processed)` }
         };
@@ -573,9 +624,10 @@ const App: React.FC = () => {
                         // Trigger download for specific item
                         const link = document.createElement('a');
                         const item = images[idx];
-                        if (item.processedUrl) {
-                            link.href = item.processedUrl;
-                            link.download = `download_${item.id}.${item.targetFormat.split('/')[1]}`;
+                        const downloadSource = getDownloadSource(item);
+                        if (downloadSource) {
+                            link.href = downloadSource.url;
+                            link.download = `download_${item.id}.${downloadSource.format.split('/')[1]}`;
                             document.body.appendChild(link);
                             link.click();
                             document.body.removeChild(link);
@@ -589,17 +641,18 @@ const App: React.FC = () => {
                     case 'SHARE':
                         // Share logic for specific item
                         const shareItem = images[idx];
-                        if (shareItem.processedUrl) {
-                            fetch(shareItem.processedUrl)
+                        const shareSource = getDownloadSource(shareItem);
+                        if (shareSource) {
+                            fetch(shareSource.url)
                                 .then(r => r.blob())
                                 .then(blob => {
-                                    const ext = shareItem.targetFormat.split('/')[1];
-                                    const file = new File([blob], `image.${ext}`, { type: shareItem.targetFormat });
+                                    const ext = shareSource.format.split('/')[1];
+                                    const file = new File([blob], `image.${ext}`, { type: shareSource.format });
                                     if (navigator.share && navigator.canShare({ files: [file] })) {
                                         navigator.share({ files: [file] });
                                     } else {
                                         toast.success('Copied to clipboard (Share not supported on this device)');
-                                        const ci = new ClipboardItem({ [shareItem.targetFormat]: blob });
+                                        const ci = new ClipboardItem({ [shareSource.format]: blob });
                                         navigator.clipboard.write([ci]);
                                     }
                                 });
@@ -682,17 +735,52 @@ const App: React.FC = () => {
         }
     };
 
-    const handleEditorSave = (newUrl: string, newBlob: Blob) => {
+    const handleEditorSave = async (newUrl: string, newBlob: Blob) => {
         if (!editingId) return;
         const originalItem = images.find(i => i.id === editingId);
         if (!originalItem) return;
+
+        const outputFormat = resolveOutputFormatFromMime(newBlob.type || originalItem.file.type || originalItem.originalMeta.type);
+        const baseName = originalItem.originalMeta.name.replace(/\.[^/.]+$/, '');
+        const fileName = `${baseName}_edited.${outputFormat.split('/')[1]}`;
+        const editedFile = new File([newBlob], fileName, { type: outputFormat });
+
+        let width = originalItem.originalMeta.width;
+        let height = originalItem.originalMeta.height;
+        try {
+            const dims = await getImageDimensions(editedFile);
+            width = dims.width;
+            height = dims.height;
+        } catch (e) {
+            console.warn("Could not extract edited image dimensions, falling back to original", e);
+        }
+
         const variantId = uuidv4();
         const newItem: ImageItem = {
-            ...originalItem,
             id: variantId,
-            file: new File([newBlob], originalItem.originalMeta.name, { type: originalItem.originalMeta.type }),
+            file: editedFile,
             previewUrl: newUrl,
-            status: ProcessingStatus.IDLE,
+            originalMeta: {
+                name: fileName,
+                size: newBlob.size,
+                width,
+                height,
+                type: outputFormat
+            },
+            targetFormat: outputFormat,
+            targetResolution: originalItem.targetResolution,
+            targetAspectRatio: originalItem.targetAspectRatio,
+            userPrompt: originalItem.userPrompt,
+            customOutputName: originalItem.customOutputName,
+            status: ProcessingStatus.SUCCESS,
+            processedUrl: newUrl,
+            processedMeta: {
+                name: fileName,
+                size: newBlob.size,
+                width,
+                height,
+                type: outputFormat
+            },
             duplicateIndex: (originalItem.duplicateIndex || 1) + 1
         };
         setImages(prev => {
@@ -702,7 +790,7 @@ const App: React.FC = () => {
             return newArr;
         });
         setEditingId(null);
-        toast.success('Edited version saved as variant');
+        toast.success('Edited version saved and ready to download');
     };
 
     const handleGenerativeFill = async (blob: Blob): Promise<string> => {
@@ -792,7 +880,7 @@ const App: React.FC = () => {
             <UserGuide isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} />
             <AnimatePresence>{isCompositeModalOpen && (<CompositeModal isOpen={isCompositeModalOpen} onClose={() => setIsCompositeModalOpen(false)} images={images} onGenerate={runCompositeGeneration} />)}</AnimatePresence>
             <AnimatePresence>{isOCRModalOpen && (<OCRSelectionModal isOpen={isOCRModalOpen} onClose={() => setIsOCRModalOpen(false)} images={images} onExtract={runOCR} />)}</AnimatePresence>
-            <AnimatePresence>{editingId && (<ImageEditor imageUrl={images.find(i => i.id === editingId)?.previewUrl || ''} onSave={handleEditorSave} onClose={() => setEditingId(null)} onGenerativeFill={handleGenerativeFill} />)}</AnimatePresence>
+            <AnimatePresence>{editingId && (<ImageEditor imageUrl={(images.find(i => i.id === editingId)?.processedUrl || images.find(i => i.id === editingId)?.previewUrl) || ''} onSave={handleEditorSave} onClose={() => setEditingId(null)} onGenerativeFill={handleGenerativeFill} />)}</AnimatePresence>
 
             <VoiceAssistant
                 onCommand={handleVoiceCommand}
@@ -922,7 +1010,7 @@ const App: React.FC = () => {
                                     </button>
                                 </div>
 
-                                <div className="bg-slate-900 rounded-xl border border-slate-800 p-3 flex items-center gap-3 justify-between xl:justify-start overflow-x-auto z-10">
+                                <div className="bg-slate-900 rounded-xl border border-slate-800 p-3 flex flex-wrap items-center gap-3 justify-start z-10">
                                     <div className="flex flex-col items-start px-2 whitespace-nowrap">
                                         <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest">
                                             <BrainCircuit className="w-4 h-4" /> {t('queue')}
@@ -933,19 +1021,19 @@ const App: React.FC = () => {
                                     </div>
                                     <div className="h-8 w-px bg-slate-800 hidden md:block"></div>
 
-                                    <button onClick={clearQueue} className="p-2.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 rounded-lg border border-red-900/50 transition-all" title={t('clearQueue')}>
+                                    <button onClick={clearQueue} className="shrink-0 p-2.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 rounded-lg border border-red-900/50 transition-all" title={t('clearQueue')}>
                                         <Trash2 className="w-4 h-4" />
                                     </button>
 
-                                    <button onClick={openCompositeModal} className="bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all shadow-lg shadow-pink-900/20">
+                                    <button onClick={openCompositeModal} className="shrink-0 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all shadow-lg shadow-pink-900/20">
                                         <PlusSquare className="w-3.5 h-3.5" /> {t('composite')}
                                     </button>
 
-                                    <button onClick={openOCRModal} disabled={isExtractingText} className="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all">
+                                    <button onClick={openOCRModal} disabled={isExtractingText} className="shrink-0 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all">
                                         {isExtractingText ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />} {t('extractText')}
                                     </button>
 
-                                    <div className="flex items-center bg-slate-950 rounded-lg border border-slate-800 px-2 h-[38px]">
+                                    <div className="shrink-0 flex items-center bg-slate-950 rounded-lg border border-slate-800 px-2 h-[38px]">
                                         <select value={namingPattern} onChange={(e) => setNamingPattern(e.target.value as NamingPattern)} className="bg-transparent text-xs text-slate-400 outline-none h-full cursor-pointer">
                                             <option value={NamingPattern.ORIGINAL}>{t('originalName')}</option>
                                             <option value={NamingPattern.RANDOM_ID}>{t('randomId')}</option>
@@ -953,11 +1041,11 @@ const App: React.FC = () => {
                                         </select>
                                     </div>
 
-                                    <button onClick={processAll} disabled={globalProcessing} className="bg-emerald-500 hover:bg-emerald-400 text-white px-6 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 uppercase tracking-wide whitespace-nowrap shadow-lg shadow-emerald-900/20 transition-all">
+                                    <button onClick={processAll} disabled={globalProcessing} className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-white px-6 py-2.5 rounded-lg font-bold text-xs flex items-center gap-2 uppercase tracking-wide whitespace-nowrap shadow-lg shadow-emerald-900/20 transition-all">
                                         {globalProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />} {t('startQueue')}
                                     </button>
 
-                                    <button onClick={downloadAllProcessed} className="bg-white hover:bg-slate-200 text-slate-950 px-4 py-2.5 rounded-lg flex items-center justify-center shadow-lg transition-all">
+                                    <button onClick={downloadAllProcessed} className="shrink-0 bg-white hover:bg-slate-200 text-slate-950 px-4 py-2.5 rounded-lg flex items-center justify-center shadow-lg transition-all">
                                         <Download className="w-4 h-4" />
                                     </button>
                                 </div>

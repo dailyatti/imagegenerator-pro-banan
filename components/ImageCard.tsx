@@ -45,10 +45,12 @@ export const ImageCard: React.FC<ImageCardProps> = ({ item, onUpdateConfig, onPr
   }, [isProcessing]);
 
   const handleDownload = () => {
-    if (item.processedUrl) {
+    const sourceUrl = item.processedUrl || item.previewUrl;
+    if (sourceUrl) {
       const link = document.createElement('a');
-      link.href = item.processedUrl;
-      const ext = item.targetFormat.split('/')[1];
+      link.href = sourceUrl;
+      const mimeType = item.processedUrl ? item.targetFormat : (item.file?.type || item.originalMeta.type || item.targetFormat);
+      const ext = mimeType.split('/')[1] || 'png';
       const filename = item.customOutputName && item.customOutputName.trim() !== '' 
         ? item.customOutputName 
         : `banana_remaster_${item.originalMeta.name.split('.')[0]}`;
@@ -78,13 +80,15 @@ export const ImageCard: React.FC<ImageCardProps> = ({ item, onUpdateConfig, onPr
   };
 
   const handleShare = async () => {
-    if (!item.processedUrl) return;
+    const sourceUrl = item.processedUrl || item.previewUrl;
+    if (!sourceUrl) return;
 
     try {
-        const response = await fetch(item.processedUrl);
+        const response = await fetch(sourceUrl);
         const blob = await response.blob();
-        const ext = item.targetFormat.split('/')[1];
-        const file = new File([blob], `image.${ext}`, { type: item.targetFormat });
+        const mimeType = item.processedUrl ? item.targetFormat : (item.file?.type || item.originalMeta.type || item.targetFormat);
+        const ext = mimeType.split('/')[1] || 'png';
+        const file = new File([blob], `image.${ext}`, { type: mimeType });
 
         if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
             await navigator.share({
@@ -96,7 +100,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({ item, onUpdateConfig, onPr
         } else {
             // Fallback to clipboard
             try {
-                const clipboardItem = new ClipboardItem({ [item.targetFormat]: blob });
+                const clipboardItem = new ClipboardItem({ [mimeType]: blob });
                 await navigator.clipboard.write([clipboardItem]);
                 toast.success('Image copied to clipboard!', { icon: '📋', style: { borderRadius: '10px', background: '#333', color: '#fff' } });
             } catch (err) {
