@@ -32,6 +32,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({ item, onUpdateConfig, onPr
   const isSuccess = item.status === ProcessingStatus.SUCCESS;
   const isError = item.status === ProcessingStatus.ERROR;
   const isIdle = item.status === ProcessingStatus.IDLE;
+  const displayImageUrl = !isProcessing && item.processedUrl ? item.processedUrl : item.previewUrl;
 
   // Cinematic Animation Logic
   useEffect(() => {
@@ -148,7 +149,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({ item, onUpdateConfig, onPr
              <motion.img 
                initial={{ scale: 0.9, opacity: 0 }}
                animate={{ scale: 1, opacity: 1 }}
-               src={isSuccess && item.processedUrl ? item.processedUrl : item.previewUrl} 
+               src={displayImageUrl} 
                alt="Preview" 
                className={`max-w-full max-h-full object-contain shadow-2xl rounded-sm ${isProcessing ? 'blur-sm opacity-50 grayscale' : ''}`} 
              />
